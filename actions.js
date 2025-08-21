@@ -38,6 +38,7 @@ const AGENT_ACTIONS = {
         const isCrossDomain = targetUrl.hostname !== currentHostname;
 
         if (isCrossDomain) {
+          // Use render functionality for cross-domain confirmation
           return await showCrossDomainConfirmation(page, baseUrl, targetUrl.hostname, currentHostname);
         }
 
@@ -101,9 +102,22 @@ const AGENT_ACTIONS = {
 
 // Utility functions
 function getPageMapping(hostname) {
-  const isUSDomain = hostname === 'app.goaskcody.com';
-  const appDomain = isUSDomain ? 'app.goaskcody.com' : 'app.onaskcody.com';
-  const euDomain = isUSDomain ? 'us.goaskcody.com' : 'eu.onaskcody.com';
+  // Check for test domains first
+  const isTestDomain = hostname.includes('testaskcody.com');
+  const isUSDomain = hostname === 'app.goaskcody.com' || hostname === 'app.testaskcody.com';
+  
+  let appDomain, euDomain;
+  
+  if (isTestDomain) {
+    appDomain = isUSDomain ? 'app.testaskcody.com' : 'app.testaskcody.com';
+    euDomain = isUSDomain ? 'us.testaskcody.com' : 'eu.testaskcody.com';
+  } else if (isUSDomain && !isTestDomain) {
+    appDomain = 'app.goaskcody.com';
+    euDomain = 'us.goaskcody.com';
+  } else {
+    appDomain = 'app.onaskcody.com';
+    euDomain = 'eu.onaskcody.com';
+  }
   
   return {
     dashboard: `https://${appDomain}/manager/dashboard/`,
@@ -145,33 +159,6 @@ function sanitizeHTML(str) {
   return div.innerHTML;
 }
 
-function trapFocus(element) {
-  const focusableElements = element.querySelectorAll(
-    'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-  );
-  const firstElement = focusableElements[0];
-  const lastElement = focusableElements[focusableElements.length - 1];
-
-  const handleTabKey = (e) => {
-    if (e.key !== 'Tab') return;
-
-    if (e.shiftKey) {
-      if (document.activeElement === firstElement) {
-        lastElement.focus();
-        e.preventDefault();
-      }
-    } else {
-      if (document.activeElement === lastElement) {
-        firstElement.focus();
-        e.preventDefault();
-      }
-    }
-  };
-
-  element.addEventListener('keydown', handleTabKey);
-  return () => element.removeEventListener('keydown', handleTabKey);
-}
-
 function announceToScreenReader(message) {
   const announcement = document.createElement('div');
   announcement.setAttribute('aria-live', 'polite');
@@ -193,24 +180,18 @@ function announceToScreenReader(message) {
   }, 1000);
 }
 
-// Cross-domain confirmation component
+// Cross-domain confirmation component that renders in chat
 const CrossDomainConfirmation = {
   awaitUserInput: true,
   render: (data, host, header, callback, cancel) => {
-    let focusTrap = null;
-    
     try {
       if (!host || !data) {
         throw new Error('Missing required parameters');
       }
       
       host.innerHTML = "";
-      host.style.minHeight = "400px";
+      host.style.minHeight = "300px";
       host.style.width = "100%";
-      host.setAttribute('role', 'dialog');
-      host.setAttribute('aria-modal', 'true');
-      host.setAttribute('aria-labelledby', 'modal-title');
-      host.setAttribute('aria-describedby', 'modal-description');
 
       const container = document.createElement("div");
       container.style.width = "100%";
@@ -227,8 +208,6 @@ const CrossDomainConfirmation = {
           --ac-button-primary-bg-hover: #eff6fc;
           --ac-button-add-bg: #0f6cbd;
           --ac-button-add-text: #fff;
-          --ac-button-disabled-bg: #f3f2f1;
-          --ac-button-disabled-text: #a19f9d;
           --ac-focus-color: #0f6cbd;
         }
         .ac-shell {
@@ -236,64 +215,66 @@ const CrossDomainConfirmation = {
           color: var(--ac-text-color);
           background-color: #fff;
           padding: 0 4px;
+          border-radius: 8px;
+          border: 1px solid #e1e1e1;
         }
         .ac-header {
           display: flex;
           align-items: center;
           gap: 12px;
-          padding: 12px 0;
+          padding: 16px 0 12px 0;
+          border-bottom: 1px solid #f3f2f1;
+          margin-bottom: 16px;
         }
-        .ac-logo { width: 32px; height: 32px; }
-        .ac-title { font-size: 18px; font-weight: 600; }
+        .ac-logo { width: 28px; height: 28px; }
+        .ac-title { font-size: 16px; font-weight: 600; }
         .ac-body {
-          max-height: 520px;
-          overflow-y: auto;
-          padding-right: 4px;
-          -webkit-overflow-scrolling: touch;
+          padding-bottom: 16px;
         }
-        .ac-warning-content {
-          background: #fff4ce;
-          border: 1px solid #ffb900;
-          border-radius: 4px;
+        .ac-info-section {
+          background: #f8f9fa;
+          border-radius: 6px;
           padding: 16px;
-          margin-bottom: 20px;
+          margin-bottom: 16px;
+          border-left: 4px solid #0f6cbd;
         }
-        .ac-warning-icon {
-          color: #ffb900;
-          font-size: 20px;
-          margin-right: 8px;
-          flex-shrink: 0;
-        }
-        .ac-warning-header {
+        .ac-info-header {
           display: flex;
           align-items: center;
-          margin-bottom: 12px;
+          margin-bottom: 8px;
           font-weight: 600;
           color: #323130;
+          font-size: 14px;
+        }
+        .ac-info-icon {
+          color: #0f6cbd;
+          font-size: 16px;
+          margin-right: 8px;
+          flex-shrink: 0;
         }
         .ac-domain-info {
           background: #f3f2f1;
           border-radius: 4px;
           padding: 12px;
-          margin: 16px 0;
+          margin: 12px 0;
           font-family: 'Courier New', monospace;
-          font-size: 13px;
+          font-size: 12px;
           word-break: break-all;
         }
         .ac-button {
           padding: 8px 16px;
-          border-radius: 2px;
+          border-radius: 4px;
           font-weight: 600;
           font-size: 14px;
           min-height: 32px;
           cursor: pointer;
           border: 1px solid transparent;
-          margin-right: 12px;
+          margin-right: 8px;
           transition: all 0.2s ease;
         }
         .ac-button:focus {
           outline: 2px solid var(--ac-focus-color);
-          outline-offset: 2px;
+          outline-offset: 1px;
         }
         .ac-btn-primary {
           color: var(--ac-button-primary-text);
@@ -316,19 +297,15 @@ const CrossDomainConfirmation = {
         }
         .ac-button-container {
           display: flex;
-          gap: 12px;
-          margin-top: 24px;
+          gap: 8px;
+          margin-top: 16px;
+          justify-content: flex-end;
         }
-        .ac-sr-only {
-          position: absolute;
-          width: 1px;
-          height: 1px;
-          padding: 0;
-          margin: -1px;
-          overflow: hidden;
-          clip: rect(0, 0, 0, 0);
-          white-space: nowrap;
-          border: 0;
+        .ac-warning-text {
+          color: #605e5c;
+          font-size: 13px;
+          line-height: 1.4;
+          margin-bottom: 12px;
         }
       `;
       host.appendChild(style);
@@ -345,51 +322,41 @@ const CrossDomainConfirmation = {
           <div class="ac-header">
             <img src="https://app.onaskcody.com/assets/images/outlook-logos/askcody-bookings/askcody-bookings-64w.png" 
                  alt="AskCody" class="ac-logo" />
-            <div class="ac-title" id="modal-title">Cross-Domain Navigation</div>
+            <div class="ac-title">Cross-Domain Navigation</div>
           </div>
           <div class="ac-body">
-            <div class="ac-warning-content">
-              <div class="ac-warning-header">
-                <span class="ac-warning-icon" aria-hidden="true">⚠️</span>
-                Authentication Required
+            <div class="ac-info-section">
+              <div class="ac-info-header">
+                <span class="ac-info-icon">🔄</span>
+                Domain Switch Required
               </div>
-              <p id="modal-description" style="margin: 0 0 12px 0; line-height: 1.5;">
-                You're about to navigate between different domains, which may require you to sign in again with Microsoft.
+              <p class="ac-warning-text">
+                You're navigating from <strong>${safeCurrentHostname}</strong> to <strong>${safeTargetHostname}</strong>. 
+                This may require signing in with Microsoft again.
               </p>
             </div>
             
-            <div style="margin-bottom: 20px;">
-              <h4 style="margin: 0 0 8px 0; color: #323130;">Navigation Details:</h4>
-              <div class="ac-domain-info">
-                <div style="margin-bottom: 8px;"><strong>From:</strong> ${safeCurrentHostname}</div>
-                <div style="margin-bottom: 8px;"><strong>To:</strong> ${safeTargetHostname}</div>
-                <div><strong>Page:</strong> ${safePage}</div>
-              </div>
+            <div class="ac-domain-info">
+              <div style="margin-bottom: 6px;"><strong>From:</strong> ${safeCurrentHostname}</div>
+              <div style="margin-bottom: 6px;"><strong>To:</strong> ${safeTargetHostname}</div>
+              <div><strong>Page:</strong> ${safePage}</div>
             </div>
 
-            <div style="background: #e1eaf5; border-radius: 4px; padding: 16px; margin-bottom: 20px;">
-              <h4 style="margin: 0 0 8px 0; color: #0f6cbd;">What happens next?</h4>
-              <ul style="margin: 0; padding-left: 20px; line-height: 1.5;">
-                <li>You'll be redirected to ${safeTargetHostname}</li>
-                <li>You may need to authenticate with Microsoft again</li>
-                <li>Once authenticated, you'll access the ${safePage} page</li>
+            <div style="background: #e8f4fd; border-radius: 4px; padding: 12px; margin-bottom: 16px;">
+              <div style="font-size: 13px; color: #0f6cbd; margin-bottom: 6px;"><strong>What happens next:</strong></div>
+              <ul style="margin: 0; padding-left: 16px; font-size: 13px; color: #323130; line-height: 1.4;">
+                <li>Redirect to ${safeTargetHostname}</li>
+                <li>Possible Microsoft authentication</li>
+                <li>Access to ${safePage} page</li>
               </ul>
             </div>
 
             <div class="ac-button-container">
-              <button id="ac-continue" class="ac-button ac-btn-add" type="button"
-                      aria-describedby="continue-description">
-                Continue to ${safePage}
-                <span id="continue-description" class="ac-sr-only">
-                  Navigate to ${safePage} on ${safeTargetHostname}. You may need to sign in again.
-                </span>
-              </button>
-              <button id="ac-cancel" class="ac-button ac-btn-primary" type="button"
-                      aria-describedby="cancel-description">
+              <button id="ac-cancel" class="ac-button ac-btn-primary" type="button">
                 Cancel
-                <span id="cancel-description" class="ac-sr-only">
-                  Cancel navigation and stay on current page
-                </span>
+              </button>
+              <button id="ac-continue" class="ac-button ac-btn-add" type="button">
+                Continue to ${safePage}
               </button>
             </div>
           </div>
@@ -406,23 +373,24 @@ const CrossDomainConfirmation = {
         throw new Error('Failed to create dialog buttons');
       }
 
-      // Set up focus trap
-      focusTrap = trapFocus(host);
-      
       // Focus the primary action (continue button)
       setTimeout(() => continueBtn.focus(), 100);
 
       // Announce to screen readers
-      announceToScreenReader(`Cross-domain navigation dialog opened. Navigate from ${safeCurrentHostname} to ${safeTargetHostname} for ${safePage} page.`);
+      announceToScreenReader(`Cross-domain navigation required. Navigate from ${safeCurrentHostname} to ${safeTargetHostname} for ${safePage} page.`);
 
       // Add event listeners with error handling
       const handleContinue = () => {
         try {
           continueBtn.disabled = true;
           cancelBtn.disabled = true;
+          continueBtn.textContent = 'Navigating...';
           announceToScreenReader('Navigating to new domain. Please wait.');
           
-          window.location.href = targetUrl;
+          // Small delay to show loading state
+          setTimeout(() => {
+            window.location.href = targetUrl;
+          }, 500);
           
           if (callback) {
             callback({
@@ -460,22 +428,20 @@ const CrossDomainConfirmation = {
 
       // Return cleanup function
       return () => {
-        if (focusTrap) focusTrap();
         continueBtn.removeEventListener('click', handleContinue);
         cancelBtn.removeEventListener('click', handleCancel);
       };
 
     } catch (error) {
       console.error('Render error:', error);
-      if (focusTrap) focusTrap();
       
       const errorMessage = `Error rendering confirmation dialog: ${error.message}`;
       host.innerHTML = `
-        <div style="color: #d13438; padding: 20px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
-          <h3>Error</h3>
-          <p>${sanitizeHTML(errorMessage)}</p>
+        <div style="color: #d13438; padding: 20px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; border: 1px solid #f5c6cb; border-radius: 4px; background: #f8d7da;">
+          <h4 style="margin: 0 0 8px 0;">Error</h4>
+          <p style="margin: 0 0 12px 0; font-size: 14px;">${sanitizeHTML(errorMessage)}</p>
           <button onclick="this.parentElement.parentElement.style.display='none'" 
-                  style="padding: 8px 16px; background: #d13438; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                  style="padding: 6px 12px; background: #d13438; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 13px;">
             Close
           </button>
         </div>
@@ -491,114 +457,36 @@ const CrossDomainConfirmation = {
   }
 };
 
-// Main function to show cross-domain confirmation
+// Function to show cross-domain confirmation using render functionality
 async function showCrossDomainConfirmation(page, targetUrl, targetHostname, currentHostname) {
   return new Promise((resolve) => {
-    let host = null;
-    let backdrop = null;
-    let cleanupRender = null;
-
-    const cleanup = () => {
-      try {
-        if (cleanupRender) cleanupRender();
-        if (backdrop?.parentNode) document.body.removeChild(backdrop);
-        if (host?.parentNode) document.body.removeChild(host);
-        document.removeEventListener('keydown', handleEscape);
-      } catch (error) {
-        console.warn('Cleanup error:', error);
-      }
+    // Return the component data for rendering in chat
+    const componentData = {
+      page,
+      targetUrl,
+      targetHostname,
+      currentHostname
     };
 
-    const handleEscape = (e) => {
-      if (e.key === 'Escape') {
-        cleanup();
-        resolve({
-          status: "CANCELLED",
-          responseMessage: `Navigation to "${page}" was cancelled by the user.`,
-        });
-      }
+    // Create a result object that will trigger the render
+    const result = {
+      status: "AWAITING_CONFIRMATION",
+      responseMessage: `Cross-domain navigation detected. Please confirm to navigate to "${page}".`,
+      data: componentData,
+      awaitUserInput: true,
+      render: CrossDomainConfirmation.render
     };
 
-    try {
-      // Create backdrop
-      backdrop = document.createElement('div');
-      backdrop.style.cssText = `
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background: rgba(0, 0, 0, 0.5);
-        z-index: 9999;
-      `;
-      backdrop.setAttribute('aria-hidden', 'true');
-
-      // Create host element
-      host = document.createElement('div');
-      host.style.cssText = `
-        position: fixed;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%);
-        z-index: 10000;
-        max-width: 600px;
-        width: 90%;
-        background: white;
-        border-radius: 8px;
-        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
-        max-height: 90vh;
-        overflow: hidden;
-      `;
-
-      document.body.appendChild(backdrop);
-      document.body.appendChild(host);
-
-      // Store original focused element
-      const originallyFocused = document.activeElement;
-
-      // Use the render functionality
-      cleanupRender = CrossDomainConfirmation.render(
-        { page, targetUrl, targetHostname, currentHostname },
-        host,
-        null,
-        (result) => {
-          cleanup();
-          if (originallyFocused && originallyFocused.focus) {
-            originallyFocused.focus();
-          }
-          resolve(result);
-        },
-        (result) => {
-          cleanup();
-          if (originallyFocused && originallyFocused.focus) {
-            originallyFocused.focus();
-          }
-          resolve(result);
-        }
-      );
-
-      // Handle backdrop click
-      backdrop.addEventListener('click', () => {
-        cleanup();
-        resolve({
-          status: "CANCELLED",
-          responseMessage: `Navigation to "${page}" was cancelled by the user.`,
-        });
-      });
-
-      // Handle ESC key
-      document.addEventListener('keydown', handleEscape);
-
-    } catch (error) {
-      console.error('Modal creation error:', error);
-      cleanup();
-      resolve({
-        status: "FAILED",
-        responseMessage: `Failed to show confirmation dialog: ${error.message}`,
-      });
-    }
+    resolve(result);
   });
 }
+
+// Add the action handlers to the global object
+if (typeof window !== 'undefined') {
+  window.AGENT_ACTIONS = AGENT_ACTIONS;
+}
+
+
 
 (function (w, d, u, n, k, c) {
   w[n] =
