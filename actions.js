@@ -38,8 +38,8 @@ const AGENT_ACTIONS = {
         const isCrossDomain = targetUrl.hostname !== currentHostname;
 
         if (isCrossDomain) {
-          // Use render functionality for cross-domain confirmation
-          return await showCrossDomainConfirmation(page, baseUrl, targetUrl.hostname, currentHostname);
+          // Return render object for cross-domain confirmation
+          return showCrossDomainConfirmation(page, baseUrl, targetUrl.hostname, currentHostname);
         }
 
         // Same domain - prefetch with timeout
@@ -458,35 +458,29 @@ const CrossDomainConfirmation = {
 };
 
 // Function to show cross-domain confirmation using render functionality
-async function showCrossDomainConfirmation(page, targetUrl, targetHostname, currentHostname) {
-  return new Promise((resolve) => {
-    // Return the component data for rendering in chat
-    const componentData = {
-      page,
-      targetUrl,
-      targetHostname,
-      currentHostname
-    };
+function showCrossDomainConfirmation(page, targetUrl, targetHostname, currentHostname) {
+  // Return the component data for rendering in chat
+  const componentData = {
+    page,
+    targetUrl,
+    targetHostname,
+    currentHostname
+  };
 
-    // Create a result object that will trigger the render
-    const result = {
-      status: "AWAITING_CONFIRMATION",
-      responseMessage: `Cross-domain navigation detected. Please confirm to navigate to "${page}".`,
-      data: componentData,
-      awaitUserInput: true,
-      render: CrossDomainConfirmation.render
-    };
-
-    resolve(result);
-  });
+  // Return a result object that will trigger the render
+  return {
+    status: "AWAITING_CONFIRMATION",
+    responseMessage: `Cross-domain navigation detected. Please confirm to navigate to "${page}".`,
+    data: componentData,
+    awaitUserInput: true,
+    render: CrossDomainConfirmation.render
+  };
 }
 
 // Add the action handlers to the global object
 if (typeof window !== 'undefined') {
   window.AGENT_ACTIONS = AGENT_ACTIONS;
 }
-
-
 
 (function (w, d, u, n, k, c) {
   w[n] =
