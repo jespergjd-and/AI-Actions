@@ -1,3 +1,21 @@
+// AskCody Navigation Script
+// Version: 1.2.0
+// Last updated: 2025-01-21
+
+const NAVIGATION_SCRIPT_VERSION = '1.2.0';
+
+// Make version accessible in console
+if (typeof window !== 'undefined') {
+  window.AskCodyNavigation = {
+    version: NAVIGATION_SCRIPT_VERSION,
+    info: () => {
+      console.log(`%cAskCody Navigation Script v${NAVIGATION_SCRIPT_VERSION}`, 'color: #0f6cbd; font-weight: bold; font-size: 14px;');
+      console.log('Features: Smart cross-domain navigation, access checking, test domain support');
+      console.log('Usage: AskCodyNavigation.version or AskCodyNavigation.info()');
+    }
+  };
+}
+
 const AGENT_ACTIONS = {
   navigate_to_page: {
     execute: async (params) => {
@@ -475,6 +493,10 @@ function showCrossDomainConfirmation(page, targetUrl, targetHostname, currentHos
 // Add the action handlers to the global object
 if (typeof window !== 'undefined') {
   window.AGENT_ACTIONS = AGENT_ACTIONS;
+  
+  // Log version on load
+  console.log(`%cAskCody Navigation Script v${NAVIGATION_SCRIPT_VERSION} loaded`, 'color: #0f6cbd; font-weight: bold;');
+  console.log('Type AskCodyNavigation.info() for more details');
 }
 
 (function (w, d, u, n, k, c) {
