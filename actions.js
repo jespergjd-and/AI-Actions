@@ -42,13 +42,14 @@ const AGENT_ACTIONS = {
           return showCrossDomainConfirmation(page, baseUrl, targetUrl.hostname, currentHostname);
         }
 
-        // Same domain - prefetch with timeout
+        // Same domain - try prefetch but don't fail on errors
         try {
           const response = await fetchWithTimeout(baseUrl, {
             method: 'HEAD',
             credentials: 'include',
-          }, 5000);
+          }, 3000);
 
+          // Only check for auth errors, ignore other 4xx errors
           if (response.status === 401) {
             return {
               status: "FAILED",
@@ -63,15 +64,7 @@ const AGENT_ACTIONS = {
             };
           }
 
-          if (!response.ok) {
-            return {
-              status: "WARNING",
-              responseMessage: `Server returned status ${response.status} for "${page}". Attempting navigation anyway.`,
-              action: () => window.location.href = baseUrl
-            };
-          }
-
-          // Successful prefetch
+          // For any other status (including 400), just navigate
           window.location.href = baseUrl;
           return {
             status: "SUCCESS",
@@ -81,11 +74,11 @@ const AGENT_ACTIONS = {
         } catch (error) {
           console.warn('Prefetch failed:', error.message);
           
-          // Attempt navigation anyway (might be CORS issue)
+          // Always attempt navigation for same-domain
           window.location.href = baseUrl;
           return {
-            status: "WARNING",
-            responseMessage: `Navigated to "${page}", but could not verify accessibility: ${error.message}`,
+            status: "SUCCESS",
+            responseMessage: `Navigated to "${page}".`,
           };
         }
 
@@ -387,10 +380,8 @@ const CrossDomainConfirmation = {
           continueBtn.textContent = 'Navigating...';
           announceToScreenReader('Navigating to new domain. Please wait.');
           
-          // Small delay to show loading state
-          setTimeout(() => {
-            window.location.href = targetUrl;
-          }, 500);
+          // Navigate immediately
+          window.location.href = targetUrl;
           
           if (callback) {
             callback({
@@ -400,6 +391,10 @@ const CrossDomainConfirmation = {
           }
         } catch (error) {
           console.error('Navigation error:', error);
+          continueBtn.disabled = false;
+          cancelBtn.disabled = false;
+          continueBtn.textContent = `Continue to ${safePage}`;
+          
           if (callback) {
             callback({
               status: "FAILED",
@@ -511,3 +506,4 @@ eucera("when", "ready", () => {
 window.eucera("when", "error", (error) => {
   console.error("Eucera error:", error);
 });
+// Version 9
