@@ -1,8 +1,8 @@
 // AskCody Navigation Script
-// Version: 1.4.0
+// Version: 1.5.0
 // Last updated: 2025-01-21
 
-const NAVIGATION_SCRIPT_VERSION = '1.4.0';
+const NAVIGATION_SCRIPT_VERSION = '1.5.0';
 
 // Make version accessible in console
 if (typeof window !== 'undefined') {
@@ -78,11 +78,22 @@ const AGENT_ACTIONS = {
         const targetUrl = new URL(baseUrl);
         const isCrossDomain = targetUrl.hostname !== currentHostname;
 
+        // Prevent cross-region navigation
+        const isCurrentUS = currentHostname.includes('goaskcody.com');
+        const isTargetUS = targetUrl.hostname.includes('goaskcody.com');
+        
+        if (isCurrentUS !== isTargetUS) {
+          return {
+            status: "FAILED",
+            responseMessage: `Sorry, I can't take you from the ${isCurrentUS ? 'US' : 'EU'} region to the ${isTargetUS ? 'US' : 'EU'} region. Please access ${page} from the correct regional site.`,
+          };
+        }
+
         if (isCrossDomain) {
           // Return data for cross-domain confirmation rendering
           return {
             status: "PENDING_CONFIRMATION",
-            responseMessage: `I can take you to ${page}, but you'll need to sign in again. Would you like me to continue?`,
+            responseMessage: `I can take you to ${page}, but you might need to sign in again. Would you like me to continue?`,
             data: {
               page,
               targetUrl: baseUrl,
@@ -284,30 +295,39 @@ const AGENT_ACTIONS = {
             <div class="ac-header">
               <img src="https://app.onaskcody.com/assets/images/outlook-logos/askcody-bookings/askcody-bookings-64w.png" 
                    alt="AskCody" class="ac-logo" />
-              <div class="ac-title">Quick Sign-In Required</div>
+              <div class="ac-title">Sign-In May Be Required</div>
             </div>
             <div class="ac-body">
               <div class="ac-info-section">
                 <div class="ac-info-header">
                   <span class="ac-info-icon">🔐</span>
-                  You'll need to sign in again
+                  You might need to sign in again
                 </div>
                 <p class="ac-warning-text">
-                  To access <strong>${safePage}</strong>, I'll take you to a different part of AskCody where you might need to sign in again with your work account.
+                  To access <strong>${safePage}</strong>, I'll take you to a different part of AskCody. You might need to sign in again with your work account depending on your current session.
                 </p>
               </div>
               
+              <div style="background: #f8f9fa; border-radius: 4px; padding: 12px; margin-bottom: 16px; font-size: 12px; color: #605e5c;">
+                <div style="margin-bottom: 8px;"><strong>Where you're going:</strong></div>
+                <div style="font-family: 'Courier New', monospace; background: white; padding: 8px; border-radius: 3px; word-break: break-all;">
+                  ${sanitizeHTML(targetUrl)}
+                </div>
+              </div>
+
               <div style="background: #e8f4fd; border-radius: 4px; padding: 12px; margin-bottom: 16px;">
-                <div style="font-size: 13px; color: #0f6cbd; margin-bottom: 6px;"><strong>What happens next:</strong></div>
+                <div style="font-size: 13px; color: #0f6cbd; margin-bottom: 6px;"><strong>What might happen:</strong></div>
                 <ul style="margin: 0; padding-left: 16px; font-size: 13px; color: #323130; line-height: 1.4;">
                   <li>I'll redirect you to the ${safePage} page</li>
-                  <li>You might see a sign-in screen (just use your work credentials)</li>
-                  <li>You'll then have access to ${safePage}</li>
+                  <li>You might see a sign-in screen (use your work credentials)</li>
+                  <li>You might get an error if your account doesn't have access to this area</li>
                 </ul>
               </div>
 
-              <div style="background: #f8f9fa; border-radius: 4px; padding: 12px; margin-bottom: 16px; font-size: 12px; color: #605e5c;">
-                <strong>Why this happens:</strong> Some AskCody features are in different sections that require separate sign-ins for security.
+              <div style="background: #fff4ce; border-radius: 4px; padding: 12px; margin-bottom: 16px; border-left: 4px solid #ffb900;">
+                <div style="font-size: 12px; color: #8a6914; line-height: 1.4;">
+                  <strong>Note:</strong> I don't have access to check your account permissions, so there's a chance you might not have access to this feature. If you get an access error, please contact your administrator.
+                </div>
               </div>
 
               <div class="ac-button-container">
@@ -399,15 +419,15 @@ function getPageMapping(hostname) {
   let appDomain, euDomain;
   
   if (hostname === 'app.goaskcody.com') {
-    // US production
+    // US production - NO cross-region navigation allowed
     appDomain = 'app.goaskcody.com';
     euDomain = 'us.goaskcody.com';
     console.log(`[Navigation Debug] Using US production domains`);
   } else if (hostname === 'app.testaskcody.com') {
-    // Test environment (always EU)
+    // Test environment - uses EU production domains for central/maps/bookings
     appDomain = 'app.testaskcody.com';
-    euDomain = 'eu.testaskcody.com';
-    console.log(`[Navigation Debug] Using test domains`);
+    euDomain = 'eu.onaskcody.com';  // Test uses EU production for these features
+    console.log(`[Navigation Debug] Using test domains with EU production for user features`);
   } else {
     // EU production (default - app.onaskcody.com)
     appDomain = 'app.onaskcody.com';
@@ -487,7 +507,6 @@ if (typeof window !== 'undefined') {
   console.log(`%cAskCody Navigation Script v${NAVIGATION_SCRIPT_VERSION} loaded`, 'color: #0f6cbd; font-weight: bold;');
   console.log('Type AskCodyNavigation.info() for more details');
 }
-
 
 (function (w, d, u, n, k, c) {
   w[n] =
