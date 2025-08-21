@@ -1,8 +1,8 @@
 // AskCody Navigation Script
-// Version: 1.3.0
+// Version: 1.3.2
 // Last updated: 2025-01-21
 
-const NAVIGATION_SCRIPT_VERSION = '1.3.0';
+const NAVIGATION_SCRIPT_VERSION = '1.3.2';
 
 // Make version accessible in console
 if (typeof window !== 'undefined') {
@@ -371,24 +371,29 @@ const AGENT_ACTIONS = {
 
 // Utility functions
 function getPageMapping(hostname) {
-  // Check for test domains first
-  const isTestDomain = hostname.includes('testaskcody.com');
-  const isUSDomain = hostname === 'app.goaskcody.com' || hostname === 'app.testaskcody.com';
+  // Debug logging to help troubleshoot
+  console.log(`[Navigation Debug] Current hostname: ${hostname}`);
   
   let appDomain, euDomain;
   
-  if (isTestDomain) {
-    appDomain = isUSDomain ? 'app.testaskcody.com' : 'app.testaskcody.com';
-    euDomain = isUSDomain ? 'us.testaskcody.com' : 'eu.testaskcody.com';
-  } else if (isUSDomain && !isTestDomain) {
+  if (hostname === 'app.goaskcody.com') {
+    // US production
     appDomain = 'app.goaskcody.com';
     euDomain = 'us.goaskcody.com';
+    console.log(`[Navigation Debug] Using US production domains`);
+  } else if (hostname === 'app.testaskcody.com') {
+    // Test environment (always EU)
+    appDomain = 'app.testaskcody.com';
+    euDomain = 'eu.testaskcody.com';
+    console.log(`[Navigation Debug] Using test domains`);
   } else {
+    // EU production (default - app.onaskcody.com)
     appDomain = 'app.onaskcody.com';
     euDomain = 'eu.onaskcody.com';
+    console.log(`[Navigation Debug] Using EU production domains`);
   }
   
-  return {
+  const mapping = {
     dashboard: `https://${appDomain}/manager/dashboard/`,
     home: `https://${appDomain}/manager/dashboard/`,
     settings: `https://${appDomain}/manager/admin_center/`,
@@ -399,6 +404,9 @@ function getPageMapping(hostname) {
     visitors: `https://${appDomain}/manager/welcome/guests/`,
     insights: `https://${appDomain}/manager/insights/`,
   };
+  
+  console.log(`[Navigation Debug] Page mapping:`, mapping);
+  return mapping;
 }
 
 function isValidUrl(string) {
@@ -457,7 +465,6 @@ if (typeof window !== 'undefined') {
   console.log(`%cAskCody Navigation Script v${NAVIGATION_SCRIPT_VERSION} loaded`, 'color: #0f6cbd; font-weight: bold;');
   console.log('Type AskCodyNavigation.info() for more details');
 }
-
 (function (w, d, u, n, k, c) {
   w[n] =
     w[n] ||
