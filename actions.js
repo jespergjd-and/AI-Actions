@@ -1,8 +1,8 @@
 // AskCody Navigation Script
-// Version: 1.3.2
+// Version: 1.4.0
 // Last updated: 2025-01-21
 
-const NAVIGATION_SCRIPT_VERSION = '1.3.2';
+const NAVIGATION_SCRIPT_VERSION = '1.4.0';
 
 // Make version accessible in console
 if (typeof window !== 'undefined') {
@@ -25,7 +25,7 @@ const AGENT_ACTIONS = {
       if (!page || typeof page !== 'string') {
         return {
           status: "FAILED",
-          responseMessage: "Invalid page parameter provided.",
+          responseMessage: "Hmm, I didn't understand which page you want to visit. Try saying something like 'take me to dashboard' or 'open settings'.",
         };
       }
 
@@ -37,9 +37,32 @@ const AGENT_ACTIONS = {
         const baseUrl = pageMapping[page.toLowerCase()];
 
         if (!baseUrl) {
+          const availablePages = Object.keys(pageMapping);
+          const suggestions = availablePages
+            .filter(p => p.toLowerCase().includes(page.toLowerCase().substring(0, 3)) || 
+                        page.toLowerCase().includes(p.toLowerCase().substring(0, 3)))
+            .slice(0, 3);
+          
+          let helpMessage = `I couldn't find a page called "${page}". `;
+          
+          if (suggestions.length > 0) {
+            helpMessage += `Did you mean: ${suggestions.join(', ')}? `;
+          }
+          
+          helpMessage += `\n\nHere are all the pages I can take you to:\n`;
+          helpMessage += `• **Dashboard** - Your main workspace\n`;
+          helpMessage += `• **Settings** - Account and system settings\n`;
+          helpMessage += `• **Central** - Event management\n`;
+          helpMessage += `• **Maps** - Location and floor plans\n`;
+          helpMessage += `• **Bookings** - Meeting room reservations\n`;
+          helpMessage += `• **Services** - Meeting delivery services\n`;
+          helpMessage += `• **Visitors** - Guest management\n`;
+          helpMessage += `• **Insights** - Analytics and reports\n\n`;
+          helpMessage += `Just say something like "take me to dashboard" or "open settings".`;
+          
           return {
             status: "FAILED",
-            responseMessage: `Page "${page}" not found. Available pages: ${Object.keys(pageMapping).join(', ')}.`,
+            responseMessage: helpMessage,
           };
         }
 
@@ -47,7 +70,7 @@ const AGENT_ACTIONS = {
         if (!isValidUrl(baseUrl)) {
           return {
             status: "FAILED",
-            responseMessage: `Invalid URL generated for page "${page}".`,
+            responseMessage: `Oops! Something went wrong trying to find the ${page} page. Please try again or ask for a different page.`,
           };
         }
 
@@ -59,7 +82,7 @@ const AGENT_ACTIONS = {
           // Return data for cross-domain confirmation rendering
           return {
             status: "PENDING_CONFIRMATION",
-            responseMessage: `Cross-domain navigation detected. Please confirm to navigate to "${page}".`,
+            responseMessage: `I can take you to ${page}, but you'll need to sign in again. Would you like me to continue?`,
             data: {
               page,
               targetUrl: baseUrl,
@@ -81,14 +104,14 @@ const AGENT_ACTIONS = {
           if (response.status === 401) {
             return {
               status: "FAILED",
-              responseMessage: `Access denied to "${page}". You might not have the correct role or permissions to access this page.`,
+              responseMessage: `I can't take you to ${page} right now. It looks like you don't have permission to access this area. You might need to contact your administrator or check if you're signed in with the right account.`,
             };
           }
 
           if (response.status === 403) {
             return {
               status: "FAILED",
-              responseMessage: `Forbidden access to "${page}". Please contact your administrator.`,
+              responseMessage: `Sorry, I can't take you to ${page}. Your account doesn't have access to this area. Please contact your administrator if you think this is a mistake.`,
             };
           }
 
@@ -96,7 +119,7 @@ const AGENT_ACTIONS = {
           window.location.href = baseUrl;
           return {
             status: "SUCCESS",
-            responseMessage: `Successfully navigated to "${page}".`,
+            responseMessage: `Taking you to ${page} now!`,
           };
 
         } catch (error) {
@@ -106,7 +129,7 @@ const AGENT_ACTIONS = {
           window.location.href = baseUrl;
           return {
             status: "SUCCESS",
-            responseMessage: `Navigated to "${page}".`,
+            responseMessage: `Taking you to ${page}!`,
           };
         }
 
@@ -114,7 +137,7 @@ const AGENT_ACTIONS = {
         console.error('Navigation error:', error);
         return {
           status: "FAILED",
-          responseMessage: `Failed to navigate to "${page}": ${error.message}`,
+          responseMessage: `Sorry, I couldn't take you to ${page} right now. Something went wrong on my end. Please try again in a moment.`,
         };
       }
     },
@@ -261,41 +284,38 @@ const AGENT_ACTIONS = {
             <div class="ac-header">
               <img src="https://app.onaskcody.com/assets/images/outlook-logos/askcody-bookings/askcody-bookings-64w.png" 
                    alt="AskCody" class="ac-logo" />
-              <div class="ac-title">Cross-Domain Navigation</div>
+              <div class="ac-title">Quick Sign-In Required</div>
             </div>
             <div class="ac-body">
               <div class="ac-info-section">
                 <div class="ac-info-header">
-                  <span class="ac-info-icon">🔄</span>
-                  Domain Switch Required
+                  <span class="ac-info-icon">🔐</span>
+                  You'll need to sign in again
                 </div>
                 <p class="ac-warning-text">
-                  You're navigating from <strong>${safeCurrentHostname}</strong> to <strong>${safeTargetHostname}</strong>. 
-                  This may require signing in with Microsoft again.
+                  To access <strong>${safePage}</strong>, I'll take you to a different part of AskCody where you might need to sign in again with your work account.
                 </p>
               </div>
               
-              <div class="ac-domain-info">
-                <div style="margin-bottom: 6px;"><strong>From:</strong> ${safeCurrentHostname}</div>
-                <div style="margin-bottom: 6px;"><strong>To:</strong> ${safeTargetHostname}</div>
-                <div><strong>Page:</strong> ${safePage}</div>
-              </div>
-
               <div style="background: #e8f4fd; border-radius: 4px; padding: 12px; margin-bottom: 16px;">
                 <div style="font-size: 13px; color: #0f6cbd; margin-bottom: 6px;"><strong>What happens next:</strong></div>
                 <ul style="margin: 0; padding-left: 16px; font-size: 13px; color: #323130; line-height: 1.4;">
-                  <li>Redirect to ${safeTargetHostname}</li>
-                  <li>Possible Microsoft authentication</li>
-                  <li>Access to ${safePage} page</li>
+                  <li>I'll redirect you to the ${safePage} page</li>
+                  <li>You might see a sign-in screen (just use your work credentials)</li>
+                  <li>You'll then have access to ${safePage}</li>
                 </ul>
+              </div>
+
+              <div style="background: #f8f9fa; border-radius: 4px; padding: 12px; margin-bottom: 16px; font-size: 12px; color: #605e5c;">
+                <strong>Why this happens:</strong> Some AskCody features are in different sections that require separate sign-ins for security.
               </div>
 
               <div class="ac-button-container">
                 <button id="ac-cancel" class="ac-button ac-btn-primary" type="button">
-                  Cancel
+                  Stay Here
                 </button>
                 <button id="ac-continue" class="ac-button ac-btn-add" type="button">
-                  Continue to ${safePage}
+                  Take Me to ${safePage}
                 </button>
               </div>
             </div>
@@ -316,15 +336,15 @@ const AGENT_ACTIONS = {
         setTimeout(() => continueBtn.focus(), 100);
 
         // Announce to screen readers
-        announceToScreenReader(`Cross-domain navigation required. Navigate from ${safeCurrentHostname} to ${safeTargetHostname} for ${safePage} page.`);
+        announceToScreenReader(`Sign-in required to access ${safePage}. Please confirm if you'd like to continue.`);
 
         // Add event listeners with error handling
         const handleContinue = () => {
           try {
             continueBtn.disabled = true;
             cancelBtn.disabled = true;
-            continueBtn.textContent = 'Navigating...';
-            announceToScreenReader('Navigating to new domain. Please wait.');
+            continueBtn.textContent = 'Taking you there...';
+            announceToScreenReader('Redirecting to the requested page.');
             
             // Navigate immediately
             window.location.href = targetUrl;
@@ -333,17 +353,19 @@ const AGENT_ACTIONS = {
             console.error('Navigation error:', error);
             continueBtn.disabled = false;
             cancelBtn.disabled = false;
-            continueBtn.textContent = `Continue to ${safePage}`;
+            continueBtn.textContent = `Take Me to ${safePage}`;
           }
         };
 
         const handleCancel = () => {
           try {
-            announceToScreenReader('Navigation cancelled.');
-            // Just hide the component or show a cancellation message
+            announceToScreenReader('Staying on current page.');
+            // Show a friendly cancellation message
             host.innerHTML = `
-              <div style="padding: 20px; text-align: center; color: #605e5c;">
-                <p>Navigation cancelled. You can try navigating to a different page.</p>
+              <div style="padding: 20px; text-align: center; color: #605e5c; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+                <div style="margin-bottom: 12px; font-size: 16px;">👍</div>
+                <p style="margin: 0; font-size: 14px;">No problem! You're staying right where you are.</p>
+                <p style="margin: 8px 0 0 0; font-size: 13px; color: #8a8886;">Ask me to take you somewhere else anytime.</p>
               </div>
             `;
           } catch (error) {
@@ -465,6 +487,8 @@ if (typeof window !== 'undefined') {
   console.log(`%cAskCody Navigation Script v${NAVIGATION_SCRIPT_VERSION} loaded`, 'color: #0f6cbd; font-weight: bold;');
   console.log('Type AskCodyNavigation.info() for more details');
 }
+
+
 (function (w, d, u, n, k, c) {
   w[n] =
     w[n] ||
