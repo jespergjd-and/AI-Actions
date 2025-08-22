@@ -1,8 +1,8 @@
 // AskCody Navigation Script
-// Version: 2.0.0
+// Version: 3.0.0
 // Last updated: 2025-01-21
 
-const NAVIGATION_SCRIPT_VERSION = '2.0.0';
+const NAVIGATION_SCRIPT_VERSION = '3.0.0';
 
 // Make version accessible in console
 if (typeof window !== 'undefined') {
@@ -31,31 +31,45 @@ if (typeof window !== 'undefined') {
 const AGENT_ACTIONS = {
   navigate_to_page: {
     execute: async (params) => {
-      console.log(params.page);
-      const page = params?.page;
+      const rawPage = params?.page;
       
-      if (!page || typeof page !== 'string') {
+      if (!rawPage || typeof rawPage !== 'string') {
         return {
           status: "FAILED",
           responseMessage: "Hmm, I didn't understand which page you want to visit. Try saying something like 'take me to dashboard' or 'open settings'.",
         };
       }
 
-      // Get current hostname with fallback
-      const currentHostname = window?.location?.hostname || 'app.onaskcody.com';
-      
+      // Sanitize and validate input
+      const page = sanitizePageName(rawPage);
+      if (!page) {
+        return {
+          status: "FAILED",
+          responseMessage: `The page name "${rawPage}" contains invalid characters. Please use only letters, numbers, and hyphens.`,
+        };
+      }
+
+      // Get current hostname with validation
+      const rawHostname = window?.location?.hostname;
+      if (!validateHostname(rawHostname)) {
+        return {
+          status: "FAILED",
+          responseMessage: "Unable to determine current location. Please refresh the page and try again.",
+        };
+      }
+      const currentHostname = rawHostname;
+
       try {
         const pages = getPageMapping(currentHostname);
-        const pageInfo = pages[page.toLowerCase()];
+        const pageInfo = pages[page];
 
         if (!pageInfo) {
           const availablePages = Object.keys(pages);
           const suggestions = availablePages
-            .filter(p => p.toLowerCase().includes(page.toLowerCase().substring(0, 3)) || 
-                        page.toLowerCase().includes(p.toLowerCase().substring(0, 3)))
+            .filter(p => p.includes(page.substring(0, 3)) || page.includes(p.substring(0, 3)))
             .slice(0, 3);
           
-          let helpMessage = `I couldn't find a page called "${page}". `;
+          let helpMessage = `I couldn't find a page called "${rawPage}". `;
           
           if (suggestions.length > 0) {
             helpMessage += `Did you mean: ${suggestions.join(', ')}? `;
@@ -101,7 +115,7 @@ const AGENT_ACTIONS = {
             status: "PENDING_CONFIRMATION",
             responseMessage: `I can take you to ${page} (${pageInfo.description.toLowerCase()}), but you might need to sign in again. Would you like me to continue?`,
             data: {
-              page,
+              page: rawPage, // Use original for display
               pageDescription: pageInfo.description,
               targetUrl: baseUrl,
               targetHostname: targetUrl.hostname,
@@ -111,12 +125,12 @@ const AGENT_ACTIONS = {
           };
         }
 
-        // Same domain - try prefetch but don't fail on errors
+        // Same domain - try prefetch with retry mechanism
         try {
-          const response = await fetchWithTimeout(baseUrl, {
+          const response = await fetchWithRetry(baseUrl, {
             method: 'HEAD',
             credentials: 'include',
-          }, 3000);
+          }, 2, 2000); // 2 retries, starting with 2s timeout
 
           // Only check for auth errors, ignore other 4xx errors
           if (response.status === 401) {
@@ -141,13 +155,27 @@ const AGENT_ACTIONS = {
           };
 
         } catch (error) {
-          console.warn('Prefetch failed:', error.message);
+          // Enhanced error handling with more specific messages
+          let errorMessage = `Taking you to ${page}!`;
+          
+          if (error.message.includes('Failed after')) {
+            // Multiple retry failures
+            console.warn(`Navigation prefetch failed after retries for ${page}:`, error.message);
+            errorMessage = `Taking you to ${page} (connection was slow, but proceeding anyway)!`;
+          } else if (error.name === 'AbortError') {
+            // Timeout
+            console.warn(`Navigation prefetch timed out for ${page}`);
+            errorMessage = `Taking you to ${page} (page is loading slowly, but proceeding anyway)!`;
+          } else {
+            // Other network errors
+            console.warn(`Navigation prefetch failed for ${page}:`, error.message);
+          }
           
           // Always attempt navigation for same-domain
           window.location.href = baseUrl;
           return {
             status: "SUCCESS",
-            responseMessage: `Taking you to ${page}!`,
+            responseMessage: errorMessage,
           };
         }
 
@@ -292,11 +320,17 @@ const AGENT_ACTIONS = {
 
         const { page, pageDescription, targetUrl, targetHostname, currentHostname } = data.data;
         
-        // Sanitize data
-        const safePage = sanitizeHTML(page);
-        const safePageDescription = sanitizeHTML(pageDescription);
-        const safeTargetHostname = sanitizeHTML(targetHostname);
-        const safeCurrentHostname = sanitizeHTML(currentHostname);
+        // Sanitize all data for safe display
+        const safePage = sanitizeHTML(page || '');
+        const safePageDescription = sanitizeHTML(pageDescription || '');
+        const safeTargetUrl = sanitizeHTML(targetUrl || '');
+        const safeTargetHostname = sanitizeHTML(targetHostname || '');
+        const safeCurrentHostname = sanitizeHTML(currentHostname || '');
+
+        // Additional validation
+        if (!safePage || !safeTargetUrl) {
+          throw new Error('Missing required navigation data');
+        }
 
         container.innerHTML = `
           <div class="ac-shell">
@@ -319,7 +353,7 @@ const AGENT_ACTIONS = {
               <div style="background: #f8f9fa; border-radius: 4px; padding: 12px; margin-bottom: 16px; font-size: 12px; color: #605e5c;">
                 <div style="margin-bottom: 8px;"><strong>Where you're going:</strong></div>
                 <div style="font-family: 'Courier New', monospace; background: white; padding: 8px; border-radius: 3px; word-break: break-all;">
-                  ${sanitizeHTML(targetUrl)}
+                  ${safeTargetUrl}
                 </div>
               </div>
 
@@ -364,11 +398,16 @@ const AGENT_ACTIONS = {
         setTimeout(() => continueBtn.focus(), 100);
 
         // Announce to screen readers
-        announceToScreenReader(`Sign-in required to access ${safePage}. Please confirm if you'd like to continue.`);
+        announceToScreenReader(`Sign-in may be required to access ${safePage}. Please confirm if you'd like to continue.`);
 
         // Add event listeners with error handling
         const handleContinue = () => {
           try {
+            // Validate URL before navigation
+            if (!targetUrl || !isValidUrl(targetUrl)) {
+              throw new Error('Invalid navigation URL');
+            }
+
             continueBtn.disabled = true;
             cancelBtn.disabled = true;
             continueBtn.textContent = 'Taking you there...';
@@ -382,6 +421,32 @@ const AGENT_ACTIONS = {
             continueBtn.disabled = false;
             cancelBtn.disabled = false;
             continueBtn.textContent = `Take Me to ${safePage}`;
+            
+            // Show error message to user
+            const errorDiv = document.createElement('div');
+            errorDiv.style.cssText = `
+              background: #f8d7da; 
+              border: 1px solid #f5c6cb; 
+              color: #721c24; 
+              padding: 8px 12px; 
+              border-radius: 4px; 
+              margin-top: 12px; 
+              font-size: 13px;
+            `;
+            errorDiv.textContent = 'Sorry, there was an error with the navigation. Please try again.';
+            
+            const buttonContainer = container.querySelector('.ac-button-container');
+            if (buttonContainer && !buttonContainer.querySelector('[data-error]')) {
+              errorDiv.setAttribute('data-error', 'true');
+              buttonContainer.appendChild(errorDiv);
+              
+              // Remove error after 5 seconds
+              setTimeout(() => {
+                if (errorDiv.parentNode) {
+                  errorDiv.parentNode.removeChild(errorDiv);
+                }
+              }, 5000);
+            }
           }
         };
 
@@ -407,11 +472,17 @@ const AGENT_ACTIONS = {
       } catch (error) {
         console.error('Render error:', error);
         
-        const errorMessage = `Error rendering confirmation dialog: ${error.message}`;
+        // Sanitize error message for display
+        const errorMessage = `Error rendering confirmation dialog: ${sanitizeHTML(error.message || 'Unknown error')}`;
+        
         host.innerHTML = `
           <div style="color: #d13438; padding: 20px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; border: 1px solid #f5c6cb; border-radius: 4px; background: #f8d7da;">
             <h4 style="margin: 0 0 8px 0;">Error</h4>
-            <p style="margin: 0 0 12px 0; font-size: 14px;">${sanitizeHTML(errorMessage)}</p>
+            <p style="margin: 0 0 12px 0; font-size: 14px;">${errorMessage}</p>
+            <button onclick="this.parentElement.style.display='none'" 
+                    style="padding: 6px 12px; background: #d13438; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 13px;">
+              Close
+            </button>
           </div>
         `;
       }
@@ -443,10 +514,7 @@ function getEnvironmentFromHostname(hostname) {
 }
 
 function getPageMapping(hostname) {
-  console.log(`[Navigation Debug] Current hostname: ${hostname}`);
-  
   const env = getEnvironmentFromHostname(hostname);
-  console.log(`[Navigation Debug] Environment:`, env);
   
   // Page definitions with context for AI
   const pages = {
@@ -540,7 +608,6 @@ function getPageMapping(hostname) {
     }
   };
   
-  console.log(`[Navigation Debug] Available pages:`, Object.keys(pages));
   return pages;
 }
 
@@ -567,22 +634,85 @@ function isValidUrl(string) {
   }
 }
 
-function fetchWithTimeout(url, options, timeout = 5000) {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeout);
-  
-  return fetch(url, {
-    ...options,
-    signal: controller.signal
-  }).finally(() => {
-    clearTimeout(timeoutId);
-  });
-}
-
 function sanitizeHTML(str) {
+  if (!str || typeof str !== 'string') return '';
   const div = document.createElement('div');
   div.textContent = str;
   return div.innerHTML;
+}
+
+function sanitizePageName(page) {
+  if (!page || typeof page !== 'string') return '';
+  // Remove any characters that aren't letters, numbers, hyphens, or underscores
+  return page.toLowerCase().replace(/[^a-z0-9\-_]/g, '').substring(0, 50);
+}
+
+function validateHostname(hostname) {
+  if (!hostname || typeof hostname !== 'string') return false;
+  // Basic hostname validation
+  const hostnameRegex = /^[a-zA-Z0-9][a-zA-Z0-9\-\.]*[a-zA-Z0-9]$/;
+  return hostnameRegex.test(hostname) && hostname.length < 255;
+}
+
+function fetchWithRetry(url, options = {}, maxRetries = 2, baseTimeout = 3000) {
+  return new Promise(async (resolve, reject) => {
+    let lastError = null;
+    
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      const controller = new AbortController();
+      const timeout = baseTimeout + (attempt * 1000); // Progressive timeout
+      
+      const timeoutId = setTimeout(() => {
+        controller.abort();
+      }, timeout);
+      
+      try {
+        const response = await fetch(url, {
+          ...options,
+          signal: controller.signal
+        });
+        
+        clearTimeout(timeoutId);
+        
+        // If successful or permanent error, return immediately
+        if (response.ok || response.status === 401 || response.status === 403) {
+          resolve(response);
+          return;
+        }
+        
+        // For temporary errors, continue to retry
+        if (attempt === maxRetries) {
+          resolve(response); // Return the last response even if not ok
+          return;
+        }
+        
+        // Wait before retry with exponential backoff
+        if (attempt < maxRetries) {
+          await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempt) * 500));
+        }
+        
+      } catch (error) {
+        clearTimeout(timeoutId);
+        lastError = error;
+        
+        // Don't retry on abort (timeout) for the last attempt
+        if (attempt === maxRetries || (error.name === 'AbortError' && attempt >= 1)) {
+          reject(new Error(`Failed after ${maxRetries + 1} attempts. Last error: ${error.message}`));
+          return;
+        }
+        
+        // Wait before retry
+        if (attempt < maxRetries) {
+          await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempt) * 500));
+        }
+      }
+    }
+  });
+}
+
+function fetchWithTimeout(url, options, timeout = 3000) {
+  // Legacy function for backward compatibility - now uses the retry mechanism
+  return fetchWithRetry(url, options, 1, timeout);
 }
 
 function announceToScreenReader(message) {
@@ -609,16 +739,14 @@ function announceToScreenReader(message) {
 // Add the action handlers to the global object
 if (typeof window !== 'undefined') {
   window.AGENT_ACTIONS = AGENT_ACTIONS;
-  
-  // Log version on load
-  console.log(`%cAskCody Navigation Script v${NAVIGATION_SCRIPT_VERSION} loaded`, 'color: #0f6cbd; font-weight: bold;');
-  console.log('Type AskCodyNavigation.info() for details or AskCodyNavigation.pages() to see all pages');
 }
+
+// Eucera integration script
 
 (function (w, d, u, n, k, c) {
   w[n] =
     w[n] ||
-    function () {
+    function () { 
       (w[n].q = w[n].q || []).push(arguments);
     };
   w[n].k = k;
