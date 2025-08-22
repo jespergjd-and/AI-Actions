@@ -1,8 +1,8 @@
 // AskCody Navigation Script
-// Version: 1.5.0
+// Version: 2.0.0
 // Last updated: 2025-01-21
 
-const NAVIGATION_SCRIPT_VERSION = '1.5.0';
+const NAVIGATION_SCRIPT_VERSION = '2.0.0';
 
 // Make version accessible in console
 if (typeof window !== 'undefined') {
@@ -10,8 +10,20 @@ if (typeof window !== 'undefined') {
     version: NAVIGATION_SCRIPT_VERSION,
     info: () => {
       console.log(`%cAskCody Navigation Script v${NAVIGATION_SCRIPT_VERSION}`, 'color: #0f6cbd; font-weight: bold; font-size: 14px;');
-      console.log('Features: Smart cross-domain navigation, access checking, test domain support');
+      console.log('Features: Smart cross-domain navigation, access checking, environment detection');
+      console.log('Environments: EU Production, US Production, Test');
       console.log('Usage: AskCodyNavigation.version or AskCodyNavigation.info()');
+      console.log('Pages: Use AskCodyNavigation.pages() to see all available pages');
+    },
+    pages: () => {
+      const hostname = window?.location?.hostname || 'app.onaskcody.com';
+      const pages = getPageMapping(hostname);
+      console.table(Object.entries(pages).map(([key, info]) => ({
+        Page: key,
+        Description: info.description,
+        Category: info.category,
+        URL: info.url
+      })));
     }
   };
 }
@@ -33,11 +45,11 @@ const AGENT_ACTIONS = {
       const currentHostname = window?.location?.hostname || 'app.onaskcody.com';
       
       try {
-        const pageMapping = getPageMapping(currentHostname);
-        const baseUrl = pageMapping[page.toLowerCase()];
+        const pages = getPageMapping(currentHostname);
+        const pageInfo = pages[page.toLowerCase()];
 
-        if (!baseUrl) {
-          const availablePages = Object.keys(pageMapping);
+        if (!pageInfo) {
+          const availablePages = Object.keys(pages);
           const suggestions = availablePages
             .filter(p => p.toLowerCase().includes(page.toLowerCase().substring(0, 3)) || 
                         page.toLowerCase().includes(p.toLowerCase().substring(0, 3)))
@@ -49,15 +61,7 @@ const AGENT_ACTIONS = {
             helpMessage += `Did you mean: ${suggestions.join(', ')}? `;
           }
           
-          helpMessage += `\n\nHere are all the pages I can take you to:\n`;
-          helpMessage += `• **Dashboard** - Your main workspace\n`;
-          helpMessage += `• **Settings** - Account and system settings\n`;
-          helpMessage += `• **Central** - Event management\n`;
-          helpMessage += `• **Maps** - Location and floor plans\n`;
-          helpMessage += `• **Bookings** - Meeting room reservations\n`;
-          helpMessage += `• **Services** - Meeting delivery services\n`;
-          helpMessage += `• **Visitors** - Guest management\n`;
-          helpMessage += `• **Insights** - Analytics and reports\n\n`;
+          helpMessage += `\n\n${getAvailablePagesDescription()}\n\n`;
           helpMessage += `Just say something like "take me to dashboard" or "open settings".`;
           
           return {
@@ -65,6 +69,8 @@ const AGENT_ACTIONS = {
             responseMessage: helpMessage,
           };
         }
+
+        const baseUrl = pageInfo.url;
 
         // Validate URL
         if (!isValidUrl(baseUrl)) {
@@ -79,13 +85,13 @@ const AGENT_ACTIONS = {
         const isCrossDomain = targetUrl.hostname !== currentHostname;
 
         // Prevent cross-region navigation
-        const isCurrentUS = currentHostname.includes('goaskcody.com');
-        const isTargetUS = targetUrl.hostname.includes('goaskcody.com');
+        const currentEnv = getEnvironmentFromHostname(currentHostname);
+        const targetEnv = getEnvironmentFromHostname(targetUrl.hostname);
         
-        if (isCurrentUS !== isTargetUS) {
+        if (currentEnv.type !== targetEnv.type) {
           return {
             status: "FAILED",
-            responseMessage: `Sorry, I can't take you from the ${isCurrentUS ? 'US' : 'EU'} region to the ${isTargetUS ? 'US' : 'EU'} region. Please access ${page} from the correct regional site.`,
+            responseMessage: `Sorry, I can't take you from ${currentEnv.type.replace('_', ' ').toLowerCase()} to ${targetEnv.type.replace('_', ' ').toLowerCase()}. Please access ${page} from the correct environment.`,
           };
         }
 
@@ -93,9 +99,10 @@ const AGENT_ACTIONS = {
           // Return data for cross-domain confirmation rendering
           return {
             status: "PENDING_CONFIRMATION",
-            responseMessage: `I can take you to ${page}, but you might need to sign in again. Would you like me to continue?`,
+            responseMessage: `I can take you to ${page} (${pageInfo.description.toLowerCase()}), but you might need to sign in again. Would you like me to continue?`,
             data: {
               page,
+              pageDescription: pageInfo.description,
               targetUrl: baseUrl,
               targetHostname: targetUrl.hostname,
               currentHostname,
@@ -283,10 +290,11 @@ const AGENT_ACTIONS = {
         `;
         host.appendChild(style);
 
-        const { page, targetUrl, targetHostname, currentHostname } = data.data;
+        const { page, pageDescription, targetUrl, targetHostname, currentHostname } = data.data;
         
         // Sanitize data
         const safePage = sanitizeHTML(page);
+        const safePageDescription = sanitizeHTML(pageDescription);
         const safeTargetHostname = sanitizeHTML(targetHostname);
         const safeCurrentHostname = sanitizeHTML(currentHostname);
 
@@ -304,7 +312,7 @@ const AGENT_ACTIONS = {
                   You might need to sign in again
                 </div>
                 <p class="ac-warning-text">
-                  To access <strong>${safePage}</strong>, I'll take you to a different part of AskCody. You might need to sign in again with your work account depending on your current session.
+                  To access <strong>${safePage}</strong> (${safePageDescription}), I'll take you to a different part of AskCody. You might need to sign in again with your work account depending on your current session.
                 </p>
               </div>
               
@@ -412,43 +420,142 @@ const AGENT_ACTIONS = {
 };
 
 // Utility functions
+function getEnvironmentFromHostname(hostname) {
+  if (hostname.includes('goaskcody.com')) {
+    return {
+      type: 'US_PRODUCTION',
+      appDomain: 'app.goaskcody.com',
+      userDomain: 'us.goaskcody.com'
+    };
+  } else if (hostname.includes('testaskcody.com')) {
+    return {
+      type: 'TEST',
+      appDomain: 'app.testaskcody.com', 
+      userDomain: 'eu.testaskcody.com'
+    };
+  } else {
+    return {
+      type: 'EU_PRODUCTION',
+      appDomain: 'app.onaskcody.com',
+      userDomain: 'eu.onaskcody.com'
+    };
+  }
+}
+
 function getPageMapping(hostname) {
-  // Debug logging to help troubleshoot
   console.log(`[Navigation Debug] Current hostname: ${hostname}`);
   
-  let appDomain, euDomain;
+  const env = getEnvironmentFromHostname(hostname);
+  console.log(`[Navigation Debug] Environment:`, env);
   
-  if (hostname === 'app.goaskcody.com') {
-    // US production - NO cross-region navigation allowed
-    appDomain = 'app.goaskcody.com';
-    euDomain = 'us.goaskcody.com';
-    console.log(`[Navigation Debug] Using US production domains`);
-  } else if (hostname === 'app.testaskcody.com') {
-    // Test environment - uses EU production domains for central/maps/bookings
-    appDomain = 'app.testaskcody.com';
-    euDomain = 'eu.onaskcody.com';  // Test uses EU production for these features
-    console.log(`[Navigation Debug] Using test domains with EU production for user features`);
-  } else {
-    // EU production (default - app.onaskcody.com)
-    appDomain = 'app.onaskcody.com';
-    euDomain = 'eu.onaskcody.com';
-    console.log(`[Navigation Debug] Using EU production domains`);
-  }
-  
-  const mapping = {
-    dashboard: `https://${appDomain}/manager/dashboard/`,
-    home: `https://${appDomain}/manager/dashboard/`,
-    settings: `https://${appDomain}/manager/admin_center/`,
-    central: `https://${euDomain}/central/events`,
-    maps: `https://${euDomain}/maps/personal`,
-    bookings: `https://${euDomain}/all-bookings`,
-    services: `https://${appDomain}/manager/meeting/deliveries/`,
-    visitors: `https://${appDomain}/manager/welcome/guests/`,
-    insights: `https://${appDomain}/manager/insights/`,
+  // Page definitions with context for AI
+  const pages = {
+    // Management/Admin pages (app domain)
+    dashboard: {
+      url: `https://${env.appDomain}/manager/dashboard/`,
+      description: "Main workspace and overview",
+      category: "management"
+    },
+    home: {
+      url: `https://${env.appDomain}/manager/dashboard/`,
+      description: "Same as dashboard - main workspace",
+      category: "management"
+    },
+    settings: {
+      url: `https://${env.appDomain}/manager/admin_center/`,
+      description: "Account settings and system configuration",
+      category: "management"
+    },
+    'admin-center': {
+      url: `https://${env.appDomain}/manager/admin_center/`,
+      description: "Administrative controls and settings",
+      category: "management"
+    },
+    services: {
+      url: `https://${env.appDomain}/manager/meeting/deliveries/`,
+      description: "Meeting delivery services and catering",
+      category: "management"
+    },
+    visitors: {
+      url: `https://${env.appDomain}/manager/welcome/guests/`,
+      description: "Guest management and visitor registration",
+      category: "management"
+    },
+    guests: {
+      url: `https://${env.appDomain}/manager/welcome/guests/`,
+      description: "Same as visitors - guest management",
+      category: "management"
+    },
+    insights: {
+      url: `https://${env.appDomain}/manager/insights/`,
+      description: "Analytics, reports and usage data",
+      category: "management"
+    },
+    analytics: {
+      url: `https://${env.appDomain}/manager/insights/`,
+      description: "Same as insights - analytics and reports",
+      category: "management"
+    },
+    reports: {
+      url: `https://${env.appDomain}/manager/insights/`,
+      description: "Same as insights - reporting dashboard",
+      category: "management"
+    },
+
+    // User features (user domain)
+    central: {
+      url: `https://${env.userDomain}/central/events`,
+      description: "Event management and scheduling central hub",
+      category: "user"
+    },
+    events: {
+      url: `https://${env.userDomain}/central/events`,
+      description: "Same as central - event management",
+      category: "user"
+    },
+    maps: {
+      url: `https://${env.userDomain}/maps/personal`,
+      description: "Interactive floor plans and location maps",
+      category: "user"
+    },
+    'floor-plans': {
+      url: `https://${env.userDomain}/maps/personal`,
+      description: "Same as maps - floor plans and layouts",
+      category: "user"
+    },
+    bookings: {
+      url: `https://${env.userDomain}/all-bookings`,
+      description: "Meeting room reservations and booking management",
+      category: "user"
+    },
+    reservations: {
+      url: `https://${env.userDomain}/all-bookings`,
+      description: "Same as bookings - room reservations",
+      category: "user"
+    },
+    'meeting-rooms': {
+      url: `https://${env.userDomain}/all-bookings`,
+      description: "Same as bookings - meeting room management",
+      category: "user"
+    }
   };
   
-  console.log(`[Navigation Debug] Page mapping:`, mapping);
-  return mapping;
+  console.log(`[Navigation Debug] Available pages:`, Object.keys(pages));
+  return pages;
+}
+
+function getAvailablePagesDescription() {
+  return `**Management & Admin:**
+• **Dashboard** - Your main workspace and overview
+• **Settings** - Account settings and system configuration  
+• **Services** - Meeting delivery services and catering
+• **Visitors/Guests** - Guest management and visitor registration
+• **Insights/Analytics/Reports** - Analytics, reports and usage data
+
+**User Features:**
+• **Central/Events** - Event management and scheduling central hub
+• **Maps/Floor-Plans** - Interactive floor plans and location maps
+• **Bookings/Reservations/Meeting-Rooms** - Meeting room reservations and booking management`;
 }
 
 function isValidUrl(string) {
@@ -505,7 +612,7 @@ if (typeof window !== 'undefined') {
   
   // Log version on load
   console.log(`%cAskCody Navigation Script v${NAVIGATION_SCRIPT_VERSION} loaded`, 'color: #0f6cbd; font-weight: bold;');
-  console.log('Type AskCodyNavigation.info() for more details');
+  console.log('Type AskCodyNavigation.info() for details or AskCodyNavigation.pages() to see all pages');
 }
 
 (function (w, d, u, n, k, c) {
@@ -537,4 +644,3 @@ eucera("when", "ready", () => {
 window.eucera("when", "error", (error) => {
   console.error("Eucera error:", error);
 });
-// Version 9
