@@ -1,8 +1,8 @@
 // AskCody Navigation Script
-// Version: 3.0.0
+// Version: 3.1.0
 // Last updated: 2025-01-21
 
-const NAVIGATION_SCRIPT_VERSION = '3.0.0';
+const NAVIGATION_SCRIPT_VERSION = '3.1.0';
 
 // Make version accessible in console
 if (typeof window !== 'undefined') {
@@ -32,7 +32,7 @@ const AGENT_ACTIONS = {
   navigate_to_page: {
     execute: async (params) => {
       const rawPage = params?.page;
-      
+
       if (!rawPage || typeof rawPage !== 'string') {
         return {
           status: "FAILED",
@@ -68,16 +68,16 @@ const AGENT_ACTIONS = {
           const suggestions = availablePages
             .filter(p => p.includes(page.substring(0, 3)) || page.includes(p.substring(0, 3)))
             .slice(0, 3);
-          
+
           let helpMessage = `I couldn't find a page called "${rawPage}". `;
-          
+
           if (suggestions.length > 0) {
             helpMessage += `Did you mean: ${suggestions.join(', ')}? `;
           }
-          
+
           helpMessage += `\n\n${getAvailablePagesDescription()}\n\n`;
           helpMessage += `Just say something like "take me to dashboard" or "open settings".`;
-          
+
           return {
             status: "FAILED",
             responseMessage: helpMessage,
@@ -101,7 +101,7 @@ const AGENT_ACTIONS = {
         // Prevent cross-region navigation
         const currentEnv = getEnvironmentFromHostname(currentHostname);
         const targetEnv = getEnvironmentFromHostname(targetUrl.hostname);
-        
+
         if (currentEnv.type !== targetEnv.type) {
           return {
             status: "FAILED",
@@ -110,10 +110,10 @@ const AGENT_ACTIONS = {
         }
 
         if (isCrossDomain) {
-          // Return data for cross-domain confirmation rendering
+          // Return data for cross-domain confirmation with awaitUserInput
           return {
             status: "PENDING_CONFIRMATION",
-            responseMessage: `I can take you to ${page} (${pageInfo.description.toLowerCase()}), but you might need to sign in again. Would you like me to continue?`,
+            responseMessage: `I can take you to ${rawPage} (${pageInfo.description.toLowerCase()}), but you might need to sign in again. Would you like me to continue?`,
             data: {
               page: rawPage, // Use original for display
               pageDescription: pageInfo.description,
@@ -132,18 +132,18 @@ const AGENT_ACTIONS = {
             credentials: 'include',
           }, 2, 2000); // 2 retries, starting with 2s timeout
 
-          // Only check for auth errors, ignore other 4xx errors
-          if (response.status === 401) {
+          // Check for auth errors and render permission error UI
+          if (response.status === 401 || response.status === 403) {
             return {
-              status: "FAILED",
-              responseMessage: `I can't take you to ${page} right now. It looks like you don't have permission to access this area. You might need to contact your administrator or check if you're signed in with the right account.`,
-            };
-          }
-
-          if (response.status === 403) {
-            return {
-              status: "FAILED",
-              responseMessage: `Sorry, I can't take you to ${page}. Your account doesn't have access to this area. Please contact your administrator if you think this is a mistake.`,
+              status: "PERMISSION_DENIED",
+              responseMessage: `I can't take you to ${rawPage} right now. You don't have permission to access this area.`,
+              data: {
+                page: rawPage,
+                pageDescription: pageInfo.description,
+                targetUrl: baseUrl,
+                errorCode: response.status,
+                requiresPermissionError: true
+              }
             };
           }
 
@@ -151,26 +151,23 @@ const AGENT_ACTIONS = {
           window.location.href = baseUrl;
           return {
             status: "SUCCESS",
-            responseMessage: `Taking you to ${page} now!`,
+            responseMessage: `Taking you to ${rawPage} now!`,
           };
 
         } catch (error) {
           // Enhanced error handling with more specific messages
-          let errorMessage = `Taking you to ${page}!`;
-          
+          let errorMessage = `Taking you to ${rawPage}!`;
+
           if (error.message.includes('Failed after')) {
-            // Multiple retry failures
-            console.warn(`Navigation prefetch failed after retries for ${page}:`, error.message);
-            errorMessage = `Taking you to ${page} (connection was slow, but proceeding anyway)!`;
+            console.warn(`Navigation prefetch failed after retries for ${rawPage}:`, error.message);
+            errorMessage = `Taking you to ${rawPage} (connection was slow, but proceeding anyway)!`;
           } else if (error.name === 'AbortError') {
-            // Timeout
-            console.warn(`Navigation prefetch timed out for ${page}`);
-            errorMessage = `Taking you to ${page} (page is loading slowly, but proceeding anyway)!`;
+            console.warn(`Navigation prefetch timed out for ${rawPage}`);
+            errorMessage = `Taking you to ${rawPage} (page is loading slowly, but proceeding anyway)!`;
           } else {
-            // Other network errors
-            console.warn(`Navigation prefetch failed for ${page}:`, error.message);
+            console.warn(`Navigation prefetch failed for ${rawPage}:`, error.message);
           }
-          
+
           // Always attempt navigation for same-domain
           window.location.href = baseUrl;
           return {
@@ -187,12 +184,15 @@ const AGENT_ACTIONS = {
         };
       }
     },
-    
-    awaitUserInput: false,
+
+    awaitUserInput: true, // Enable awaiting user input for cross-domain confirmation
     render: (data, host, header, callback, cancel, isUpdateState) => {
       try {
-        // Only render if we have cross-domain confirmation data
-        if (!data?.data?.requiresConfirmation) {
+        // Check what type of rendering is needed
+        const needsConfirmation = data?.data?.requiresConfirmation;
+        const needsPermissionError = data?.data?.requiresPermissionError;
+
+        if (!needsConfirmation && !needsPermissionError) {
           return;
         }
 
@@ -246,6 +246,13 @@ const AGENT_ACTIONS = {
             margin-bottom: 16px;
             border-left: 4px solid #0f6cbd;
           }
+          .ac-error-section {
+            background: #f8d7da;
+            border-radius: 6px;
+            padding: 16px;
+            margin-bottom: 16px;
+            border-left: 4px solid #dc3545;
+          }
           .ac-info-header {
             display: flex;
             align-items: center;
@@ -254,20 +261,25 @@ const AGENT_ACTIONS = {
             color: #323130;
             font-size: 14px;
           }
+          .ac-error-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #721c24;
+            font-size: 14px;
+          }
           .ac-info-icon {
             color: #0f6cbd;
             font-size: 16px;
             margin-right: 8px;
             flex-shrink: 0;
           }
-          .ac-domain-info {
-            background: #f3f2f1;
-            border-radius: 4px;
-            padding: 12px;
-            margin: 12px 0;
-            font-family: 'Courier New', monospace;
-            font-size: 12px;
-            word-break: break-all;
+          .ac-error-icon {
+            color: #dc3545;
+            font-size: 16px;
+            margin-right: 8px;
+            flex-shrink: 0;
           }
           .ac-button {
             padding: 8px 16px;
@@ -315,176 +327,267 @@ const AGENT_ACTIONS = {
             line-height: 1.4;
             margin-bottom: 12px;
           }
+          .ac-error-text {
+            color: #721c24;
+            font-size: 13px;
+            line-height: 1.4;
+            margin-bottom: 12px;
+          }
         `;
         host.appendChild(style);
 
-        const { page, pageDescription, targetUrl, targetHostname, currentHostname } = data.data;
-        
-        // Sanitize all data for safe display
-        const safePage = sanitizeHTML(page || '');
-        const safePageDescription = sanitizeHTML(pageDescription || '');
-        const safeTargetUrl = sanitizeHTML(targetUrl || '');
-        const safeTargetHostname = sanitizeHTML(targetHostname || '');
-        const safeCurrentHostname = sanitizeHTML(currentHostname || '');
+        if (needsPermissionError) {
+          // Render permission error UI
+          const { page, pageDescription, errorCode } = data.data;
+          const safePage = sanitizeHTML(page || '');
+          const safePageDescription = sanitizeHTML(pageDescription || '');
 
-        // Additional validation
-        if (!safePage || !safeTargetUrl) {
-          throw new Error('Missing required navigation data');
-        }
-
-        container.innerHTML = `
-          <div class="ac-shell">
-            <div class="ac-header">
-              <img src="https://app.onaskcody.com/assets/images/outlook-logos/askcody-bookings/askcody-bookings-64w.png" 
-                   alt="AskCody" class="ac-logo" />
-              <div class="ac-title">Sign-In May Be Required</div>
-            </div>
-            <div class="ac-body">
-              <div class="ac-info-section">
-                <div class="ac-info-header">
-                  <span class="ac-info-icon">🔐</span>
-                  You might need to sign in again
+          container.innerHTML = `
+            <div class="ac-shell">
+              <div class="ac-header">
+                <img src="https://app.onaskcody.com/assets/images/outlook-logos/askcody-bookings/askcody-bookings-64w.png" 
+                     alt="AskCody" class="ac-logo" />
+                <div class="ac-title">Access Denied</div>
+              </div>
+              <div class="ac-body">
+                <div class="ac-error-section">
+                  <div class="ac-error-header">
+                    <span class="ac-error-icon">🚫</span>
+                    You don't have permission
+                  </div>
+                  <p class="ac-error-text">
+                    I can't take you to <strong>${safePage}</strong> (${safePageDescription}) because your account doesn't have access to this area.
+                  </p>
                 </div>
-                <p class="ac-warning-text">
-                  To access <strong>${safePage}</strong> (${safePageDescription}), I'll take you to a different part of AskCody. You might need to sign in again with your work account depending on your current session.
-                </p>
-              </div>
-              
-              <div style="background: #f8f9fa; border-radius: 4px; padding: 12px; margin-bottom: 16px; font-size: 12px; color: #605e5c;">
-                <div style="margin-bottom: 8px;"><strong>Where you're going:</strong></div>
-                <div style="font-family: 'Courier New', monospace; background: white; padding: 8px; border-radius: 3px; word-break: break-all;">
-                  ${safeTargetUrl}
+                
+                <div style="background: #fff3cd; border-radius: 4px; padding: 12px; margin-bottom: 16px; border-left: 4px solid #ffc107;">
+                  <div style="font-size: 13px; color: #856404; line-height: 1.4;">
+                    <strong>What you can do:</strong><br>
+                    • Contact your administrator to request access<br>
+                    • Check if you're signed in with the correct account<br>
+                    • Try accessing a different page that you have permissions for
+                  </div>
                 </div>
-              </div>
 
-              <div style="background: #e8f4fd; border-radius: 4px; padding: 12px; margin-bottom: 16px;">
-                <div style="font-size: 13px; color: #0f6cbd; margin-bottom: 6px;"><strong>What might happen:</strong></div>
-                <ul style="margin: 0; padding-left: 16px; font-size: 13px; color: #323130; line-height: 1.4;">
-                  <li>I'll redirect you to the ${safePage} page</li>
-                  <li>You might see a sign-in screen (use your work credentials)</li>
-                  <li>You might get an error if your account doesn't have access to this area</li>
-                </ul>
-              </div>
-
-              <div style="background: #fff4ce; border-radius: 4px; padding: 12px; margin-bottom: 16px; border-left: 4px solid #ffb900;">
-                <div style="font-size: 12px; color: #8a6914; line-height: 1.4;">
-                  <strong>Note:</strong> I don't have access to check your account permissions, so there's a chance you might not have access to this feature. If you get an access error, please contact your administrator.
+                <div style="background: #f8f9fa; border-radius: 4px; padding: 12px; margin-bottom: 16px; font-size: 12px; color: #605e5c;">
+                  <strong>Technical details:</strong> Server returned ${errorCode === 401 ? 'authentication required (401)' : 'access forbidden (403)'} error.
                 </div>
-              </div>
 
-              <div class="ac-button-container">
-                <button id="ac-cancel" class="ac-button ac-btn-primary" type="button">
-                  Stay Here
-                </button>
-                <button id="ac-continue" class="ac-button ac-btn-add" type="button">
-                  Take Me to ${safePage}
-                </button>
+                <div class="ac-button-container">
+                  <button id="ac-close" class="ac-button ac-btn-primary" type="button">
+                    Got It
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
-        `;
+          `;
 
-        host.appendChild(container);
+          host.appendChild(container);
 
-        // Get button references
-        const continueBtn = container.querySelector('#ac-continue');
-        const cancelBtn = container.querySelector('#ac-cancel');
+          // Handle close button
+          const closeBtn = container.querySelector('#ac-close');
+          if (closeBtn) {
+            setTimeout(() => closeBtn.focus(), 100);
+            closeBtn.addEventListener('click', () => {
+              if (callback) {
+                callback({
+                  status: "ACKNOWLEDGED",
+                  responseMessage: `I understand you don't have access to ${safePage}. Is there another page I can help you navigate to?`,
+                });
+              }
+            });
+          }
 
-        if (!continueBtn || !cancelBtn) {
-          throw new Error('Failed to create dialog buttons');
+          return;
         }
 
-        // Focus the primary action (continue button)
-        setTimeout(() => continueBtn.focus(), 100);
+        if (needsConfirmation) {
+          // Render cross-domain confirmation UI
+          const { page, pageDescription, targetUrl, targetHostname, currentHostname } = data.data;
 
-        // Announce to screen readers
-        announceToScreenReader(`Sign-in may be required to access ${safePage}. Please confirm if you'd like to continue.`);
+          const safePage = sanitizeHTML(page || '');
+          const safePageDescription = sanitizeHTML(pageDescription || '');
+          const safeTargetUrl = sanitizeHTML(targetUrl || '');
 
-        // Add event listeners with error handling
-        const handleContinue = () => {
-          try {
-            // Validate URL before navigation
-            if (!targetUrl || !isValidUrl(targetUrl)) {
-              throw new Error('Invalid navigation URL');
-            }
-
-            continueBtn.disabled = true;
-            cancelBtn.disabled = true;
-            continueBtn.textContent = 'Taking you there...';
-            announceToScreenReader('Redirecting to the requested page.');
-            
-            // Navigate immediately
-            window.location.href = targetUrl;
-            
-          } catch (error) {
-            console.error('Navigation error:', error);
-            continueBtn.disabled = false;
-            cancelBtn.disabled = false;
-            continueBtn.textContent = `Take Me to ${safePage}`;
-            
-            // Show error message to user
-            const errorDiv = document.createElement('div');
-            errorDiv.style.cssText = `
-              background: #f8d7da; 
-              border: 1px solid #f5c6cb; 
-              color: #721c24; 
-              padding: 8px 12px; 
-              border-radius: 4px; 
-              margin-top: 12px; 
-              font-size: 13px;
-            `;
-            errorDiv.textContent = 'Sorry, there was an error with the navigation. Please try again.';
-            
-            const buttonContainer = container.querySelector('.ac-button-container');
-            if (buttonContainer && !buttonContainer.querySelector('[data-error]')) {
-              errorDiv.setAttribute('data-error', 'true');
-              buttonContainer.appendChild(errorDiv);
-              
-              // Remove error after 5 seconds
-              setTimeout(() => {
-                if (errorDiv.parentNode) {
-                  errorDiv.parentNode.removeChild(errorDiv);
-                }
-              }, 5000);
-            }
+          if (!safePage || !safeTargetUrl) {
+            throw new Error('Missing required navigation data');
           }
-        };
 
-        const handleCancel = () => {
-          try {
-            announceToScreenReader('Staying on current page.');
-            // Show a friendly cancellation message
-            host.innerHTML = `
-              <div style="padding: 20px; text-align: center; color: #605e5c; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
-                <div style="margin-bottom: 12px; font-size: 16px;">👍</div>
-                <p style="margin: 0; font-size: 14px;">No problem! You're staying right where you are.</p>
-                <p style="margin: 8px 0 0 0; font-size: 13px; color: #8a8886;">Ask me to take you somewhere else anytime.</p>
+          container.innerHTML = `
+            <div class="ac-shell">
+              <div class="ac-header">
+                <img src="https://app.onaskcody.com/assets/images/outlook-logos/askcody-bookings/askcody-bookings-64w.png" 
+                         alt="AskCody" class="ac-logo" />
+                <div class="ac-title">Sign-In May Be Required</div>
               </div>
-            `;
-          } catch (error) {
-            console.error('Cancel error:', error);
-          }
-        };
+              <div class="ac-body">
+                <div class="ac-info-section">
+                  <div class="ac-info-header">
+                    <span class="ac-info-icon">🔐</span>
+                    You might need to sign in again
+                  </div>
+                  <p class="ac-warning-text">
+                    To access <strong>${safePage}</strong> (${safePageDescription}), I'll take you to a different part of AskCody. You might need to sign in again with your work account depending on your current session.
+                  </p>
+                </div>
 
-        continueBtn.addEventListener('click', handleContinue);
-        cancelBtn.addEventListener('click', handleCancel);
+                <div style="background: #f8f9fa; border-radius: 4px; padding: 12px; margin-bottom: 16px; font-size: 12px; color: #605e5c;">
+                  <div style="margin-bottom: 8px;"><strong>Where you're going:</strong></div>
+                  <div style="font-family: 'Courier New', monospace; background: white; padding: 8px; border-radius: 3px; word-break: break-all;">
+                    ${safeTargetUrl}
+                  </div>
+                </div>
+
+                <div style="background: #e8f4fd; border-radius: 4px; padding: 12px; margin-bottom: 16px;">
+                  <div style="font-size: 13px; color: #0f6cbd; margin-bottom: 6px;"><strong>What might happen:</strong></div>
+                  <ul style="margin: 0; padding-left: 16px; font-size: 13px; color: #323130; line-height: 1.4;">
+                    <li>I'll redirect you to the ${safePage} page</li>
+                    <li>You might see a sign-in screen (use your work credentials)</li>
+                    <li>You might get an error if your account doesn't have access to this area</li>
+                  </ul>
+                </div>
+
+                <div style="background: #fff4ce; border-radius: 4px; padding: 12px; margin-bottom: 16px; border-left: 4px solid #ffb900;">
+                  <div style="font-size: 12px; color: #8a6914; line-height: 1.4;">
+                    <strong>Note:</strong> I don't have access to check your account permissions, so there's a chance you might not have access to this feature. If you get an access error, please contact your administrator.
+                  </div>
+                </div>
+
+                <div class="ac-button-container">
+                  <button id="ac-cancel" class="ac-button ac-btn-primary" type="button">
+                    Stay Here
+                  </button>
+                  <button id="ac-continue" class="ac-button ac-btn-add" type="button">
+                    Take Me to ${safePage}
+                  </button>
+                </div>
+              </div>
+            </div>
+          `;
+
+          host.appendChild(container);
+
+          // Get button references
+          const continueBtn = container.querySelector('#ac-continue');
+          const cancelBtn = container.querySelector('#ac-cancel');
+
+          if (!continueBtn || !cancelBtn) {
+            throw new Error('Failed to create dialog buttons');
+          }
+
+          setTimeout(() => continueBtn.focus(), 100);
+          announceToScreenReader(`Sign-in may be required to access ${safePage}. Please confirm if you'd like to continue.`);
+
+          const handleContinue = () => {
+            try {
+              if (!targetUrl || !isValidUrl(targetUrl)) {
+                throw new Error('Invalid navigation URL');
+              }
+
+              continueBtn.disabled = true;
+              cancelBtn.disabled = true;
+              continueBtn.textContent = 'Taking you there...';
+              announceToScreenReader('Redirecting to the requested page.');
+
+              window.location.href = targetUrl;
+
+              if (callback) {
+                callback({
+                  status: "SUCCESS",
+                  responseMessage: `Taking you to ${safePage} now! You are now being taken to the ${safePage} section of AskCody. If you need guidance on how to use any features within ${safePage} or have specific tasks in mind, please let me know how I can assist further!`,
+                });
+              }
+
+            } catch (error) {
+              console.error('Navigation error:', error);
+              continueBtn.disabled = false;
+              cancelBtn.disabled = false;
+              continueBtn.textContent = `Take Me to ${safePage}`;
+
+              const errorDiv = document.createElement('div');
+              errorDiv.style.cssText = `
+                background: #f8d7da; 
+                border: 1px solid #f5c6cb; 
+                color: #721c24; 
+                padding: 8px 12px; 
+                border-radius: 4px; 
+                margin-top: 12px; 
+                font-size: 13px;
+              `;
+              errorDiv.textContent = 'Sorry, there was an error with the navigation. Please try again.';
+
+              const buttonContainer = container.querySelector('.ac-button-container');
+              if (buttonContainer && !buttonContainer.querySelector('[data-error]')) {
+                errorDiv.setAttribute('data-error', 'true');
+                buttonContainer.appendChild(errorDiv);
+
+                setTimeout(() => {
+                  if (errorDiv.parentNode) {
+                    errorDiv.parentNode.removeChild(errorDiv);
+                  }
+                }, 5000);
+              }
+
+              if (callback) {
+                callback({
+                  status: "FAILED",
+                  responseMessage: `Sorry, there was an error navigating to ${safePage}. Please try again.`,
+                });
+              }
+            }
+          };
+
+          const handleCancel = () => {
+            try {
+              announceToScreenReader('Staying on current page.');
+
+              if (cancel) {
+                cancel({
+                  status: "CANCELLED",
+                  responseMessage: `No problem! You're staying right where you are. Ask me to take you somewhere else anytime.`,
+                });
+              }
+
+            } catch (error) {
+              console.error('Cancel error:', error);
+
+              host.innerHTML = `
+                <div style="padding: 20px; text-align: center; color: #605e5c; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+                  <div style="margin-bottom: 12px; font-size: 16px;">👍</div>
+                  <p style="margin: 0; font-size: 14px;">No problem! You're staying right where you are.</p>
+                  <p style="margin: 8px 0 0 0; font-size: 13px; color: #8a8886;">Ask me to take you somewhere else anytime.</p>
+                </div>
+              `;
+            }
+          };
+
+          continueBtn.addEventListener('click', handleContinue);
+          cancelBtn.addEventListener('click', handleCancel);
+
+        }
 
       } catch (error) {
         console.error('Render error:', error);
-        
-        // Sanitize error message for display
+
         const errorMessage = `Error rendering confirmation dialog: ${sanitizeHTML(error.message || 'Unknown error')}`;
-        
+
         host.innerHTML = `
           <div style="color: #d13438; padding: 20px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; border: 1px solid #f5c6cb; border-radius: 4px; background: #f8d7da;">
             <h4 style="margin: 0 0 8px 0;">Error</h4>
             <p style="margin: 0 0 12px 0; font-size: 14px;">${errorMessage}</p>
             <button onclick="this.parentElement.style.display='none'" 
-                    style="padding: 6px 12px; background: #d13438; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 13px;">
+                     style="padding: 6px 12px; background: #d13438; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 13px;">
               Close
             </button>
           </div>
         `;
+
+        if (cancel) {
+          cancel({
+            status: "FAILED",
+            responseMessage: "Sorry, there was an error showing the navigation confirmation. Please try again.",
+          });
+        }
       }
     }
   }
@@ -501,7 +604,7 @@ function getEnvironmentFromHostname(hostname) {
   } else if (hostname.includes('testaskcody.com')) {
     return {
       type: 'TEST',
-      appDomain: 'app.testaskcody.com', 
+      appDomain: 'app.testaskcody.com',
       userDomain: 'eu.testaskcody.com'
     };
   } else {
@@ -515,7 +618,7 @@ function getEnvironmentFromHostname(hostname) {
 
 function getPageMapping(hostname) {
   const env = getEnvironmentFromHostname(hostname);
-  
+
   // Page definitions with context for AI
   const pages = {
     // Management/Admin pages (app domain)
@@ -607,14 +710,14 @@ function getPageMapping(hostname) {
       category: "user"
     }
   };
-  
+
   return pages;
 }
 
 function getAvailablePagesDescription() {
   return `**Management & Admin:**
 • **Dashboard** - Your main workspace and overview
-• **Settings** - Account settings and system configuration  
+• **Settings** - Account settings and system configuration
 • **Services** - Meeting delivery services and catering
 • **Visitors/Guests** - Guest management and visitor registration
 • **Insights/Analytics/Reports** - Analytics, reports and usage data
@@ -657,50 +760,50 @@ function validateHostname(hostname) {
 function fetchWithRetry(url, options = {}, maxRetries = 2, baseTimeout = 3000) {
   return new Promise(async (resolve, reject) => {
     let lastError = null;
-    
+
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       const controller = new AbortController();
       const timeout = baseTimeout + (attempt * 1000); // Progressive timeout
-      
+
       const timeoutId = setTimeout(() => {
         controller.abort();
       }, timeout);
-      
+
       try {
         const response = await fetch(url, {
           ...options,
           signal: controller.signal
         });
-        
+
         clearTimeout(timeoutId);
-        
+
         // If successful or permanent error, return immediately
         if (response.ok || response.status === 401 || response.status === 403) {
           resolve(response);
           return;
         }
-        
+
         // For temporary errors, continue to retry
         if (attempt === maxRetries) {
           resolve(response); // Return the last response even if not ok
           return;
         }
-        
+
         // Wait before retry with exponential backoff
         if (attempt < maxRetries) {
           await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempt) * 500));
         }
-        
+
       } catch (error) {
         clearTimeout(timeoutId);
         lastError = error;
-        
+
         // Don't retry on abort (timeout) for the last attempt
         if (attempt === maxRetries || (error.name === 'AbortError' && attempt >= 1)) {
           reject(new Error(`Failed after ${maxRetries + 1} attempts. Last error: ${error.message}`));
           return;
         }
-        
+
         // Wait before retry
         if (attempt < maxRetries) {
           await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempt) * 500));
@@ -728,7 +831,7 @@ function announceToScreenReader(message) {
   `;
   announcement.textContent = message;
   document.body.appendChild(announcement);
-  
+
   setTimeout(() => {
     if (announcement.parentNode) {
       document.body.removeChild(announcement);
@@ -740,13 +843,12 @@ function announceToScreenReader(message) {
 if (typeof window !== 'undefined') {
   window.AGENT_ACTIONS = AGENT_ACTIONS;
 }
-
 // Eucera integration script
 
 (function (w, d, u, n, k, c) {
   w[n] =
     w[n] ||
-    function () { 
+    function () {
       (w[n].q = w[n].q || []).push(arguments);
     };
   w[n].k = k;
